@@ -3,8 +3,9 @@
 Frontend workspace for the Bauang Agricultural Trade Center Distribution Management System (DMS).
 
 Current implementation status:
-- React + Vite frontend scaffold is in place.
-- The app is still template-level and ready for feature development.
+- React + Vite frontend with role dashboards and protected routes is in place.
+- Django + DRF backend with JWT authentication and core domain APIs is implemented.
+- Staff farmer verification, farmer profile updates, and farmer intervention application screens are API-integrated.
 - Full system architecture and domain design are documented in `bauang_agricultural_trade_center_dms_plan.md`.
 
 ## Tech Stack
@@ -12,11 +13,9 @@ Current implementation status:
 - React 19
 - Vite 8
 - ESLint 9
-
-Planned (from system plan):
-- Backend: Django + Django REST Framework
-- Database: PostgreSQL
-- Auth: JWT
+- Django 5 + Django REST Framework
+- Simple JWT auth
+- SQLite (local bootstrap) / PostgreSQL-ready environment variables
 
 ## Getting Started
 
@@ -31,11 +30,27 @@ Planned (from system plan):
 npm install
 ```
 
+### Configure Frontend Environment
+
+```bash
+copy .env.example .env
+```
+
 ### Run Dev Server
 
 ```bash
 npm run dev
 ```
+
+### Run Full System (Frontend + Backend)
+
+```bash
+npm run dev:full
+```
+
+This starts:
+- frontend on `http://localhost:5173`
+- backend on `http://127.0.0.1:8000`
 
 ### Build for Production
 
@@ -49,15 +64,83 @@ npm run build
 npm run preview
 ```
 
+## GitHub Live Preview (Frontend)
+
+This repository includes a workflow at `.github/workflows/deploy-frontend-pages.yml`
+to deploy the React frontend to GitHub Pages.
+
+Expected live URL format:
+
+- `https://<your-github-username>.github.io/<repository-name>/`
+
+### One-Time Setup
+
+1. Open repository **Settings > Pages**.
+2. Set **Source** to **GitHub Actions**.
+3. (Recommended) In **Settings > Secrets and variables > Actions > Variables**, add:
+	- `VITE_API_BASE_URL` = your deployed backend API base URL (example: `https://your-backend-domain/api`)
+
+### Important Note
+
+GitHub Pages hosts the frontend only. Django backend APIs must be deployed to a backend host
+(Render, Railway, Azure, etc.) for full end-to-end functionality in the live preview.
+
 ### Lint
 
 ```bash
 npm run lint
 ```
 
+## Backend Setup
+
+### Prerequisites
+
+- Python 3.12+
+
+### Install Dependencies
+
+```bash
+py -3 -m pip install -r requirements.txt
+```
+
+### Configure Backend Environment
+
+```bash
+copy backend\.env.example backend\.env
+```
+
+### Apply Migrations
+
+```bash
+cd backend
+py -3 manage.py migrate
+```
+
+### Seed Local Data (Roles, Users, Demo Records)
+
+```bash
+py -3 manage.py seed_initial_data --password "ChangeMe123!"
+```
+
+### Run Backend Server
+
+```bash
+py -3 manage.py runserver
+```
+
+### Demo Accounts
+
+- `admin` / `ChangeMe123!`
+- `staff` / `ChangeMe123!`
+- `farmer` / `ChangeMe123!`
+- `distributor` / `ChangeMe123!`
+
 ## Available Scripts
 
-- `npm run dev`: starts Vite development server with HMR.
+- `npm run dev`: starts frontend Vite development server with HMR.
+- `npm run dev:frontend`: explicit frontend dev server command.
+- `npm run dev:backend`: starts Django backend from the workspace root.
+- `npm run dev:full`: starts frontend and backend concurrently.
 - `npm run build`: creates a production build.
 - `npm run preview`: serves the production build locally.
 - `npm run lint`: runs ESLint across the project.
@@ -96,20 +179,20 @@ Core modules outlined in the system plan:
 
 ## Project Roadmap
 
-### Phase 1: Frontend Foundation (Current)
-- Clean up template UI and replace with DMS-oriented pages.
-- Establish reusable layout, form, and table components.
-- Add route structure for role-specific dashboards.
+### Phase 1: Foundation (Completed)
+- Replaced template UI with DMS-oriented pages and role routes.
+- Added shared layout, auth context, route protection, and service modules.
+- Added Django backend with modular apps, JWT auth, and baseline APIs.
 
-### Phase 2: Domain Modules (Frontend)
-- Farmer management screens (list, profile, status updates).
-- Inventory and intervention tracking interfaces.
-- Distributor assignment and delivery status workflow.
+### Phase 2: Domain Modules (In Progress)
+- Farmer verification (staff) is connected to API.
+- Farmer profile and intervention application are connected to API.
+- Inventory and distributor workflows remain to be fully integrated.
 
 ### Phase 3: API Integration
-- Integrate frontend with Django REST API endpoints.
-- Add JWT-based authentication and protected routes.
-- Implement robust loading, validation, and error states.
+- Expand integration coverage for admin/staff/distributor modules.
+- Add token refresh flow and stronger session handling.
+- Improve loading, validation, and error UX patterns.
 
 ### Phase 4: Quality and Security
 - Expand linting and testing coverage.
