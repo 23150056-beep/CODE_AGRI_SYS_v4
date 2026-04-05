@@ -5,6 +5,11 @@ export async function getFarmers() {
   return response.data
 }
 
+export async function createFarmerProfile(payload) {
+  const response = await apiClient.post('/farmers/', payload)
+  return response.data
+}
+
 export async function updateFarmerProfile(farmerId, payload) {
   const response = await apiClient.patch(`/farmers/${farmerId}/`, payload)
   return response.data

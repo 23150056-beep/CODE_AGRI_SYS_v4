@@ -8,6 +8,7 @@ import AdminDashboardPage from '../pages/admin/AdminDashboardPage'
 import InventoryManagementPage from '../pages/admin/InventoryManagementPage'
 import ProgramManagementPage from '../pages/admin/ProgramManagementPage'
 import UserManagementPage from '../pages/admin/UserManagementPage'
+import OperationalReportsPage from '../pages/shared/OperationalReportsPage'
 import DistributorDashboardPage from '../pages/distributor/DistributorDashboardPage'
 import DeliveryStatusPage from '../pages/distributor/DeliveryStatusPage'
 import ApplyInterventionPage from '../pages/farmer/ApplyInterventionPage'
@@ -29,6 +30,11 @@ function AppRouter() {
           <Route path="/admin/users" element={<UserManagementPage />} />
           <Route path="/admin/programs" element={<ProgramManagementPage />} />
           <Route path="/admin/inventory" element={<InventoryManagementPage />} />
+          <Route
+            path="/admin/distributions"
+            element={<DistributionAssignmentPage />}
+          />
+          <Route path="/admin/reports" element={<OperationalReportsPage />} />
         </Route>
       </Route>
 
@@ -40,6 +46,7 @@ function AppRouter() {
             path="/staff/distributions"
             element={<DistributionAssignmentPage />}
           />
+          <Route path="/staff/reports" element={<OperationalReportsPage />} />
         </Route>
       </Route>
 

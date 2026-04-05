@@ -36,6 +36,9 @@ npm install
 copy .env.example .env
 ```
 
+Default local mode uses backend APIs (`VITE_DEMO_MODE=false`).
+To run the frontend with built-in sample data only, set `VITE_DEMO_MODE=true` in `.env`.
+
 ### Run Dev Server
 
 ```bash
@@ -69,6 +72,9 @@ npm run preview
 This repository includes a workflow at `.github/workflows/deploy-frontend-pages.yml`
 to deploy the React frontend to GitHub Pages.
 
+GitHub Pages is configured to build with `VITE_DEMO_MODE=true`, so the live site runs with
+an in-browser sample datastore (no external backend required).
+
 Expected live URL format:
 
 - `https://<your-github-username>.github.io/<repository-name>/`
@@ -77,13 +83,20 @@ Expected live URL format:
 
 1. Open repository **Settings > Pages**.
 2. Set **Source** to **GitHub Actions**.
-3. (Recommended) In **Settings > Secrets and variables > Actions > Variables**, add:
-	- `VITE_API_BASE_URL` = your deployed backend API base URL (example: `https://your-backend-domain/api`)
 
 ### Important Note
 
-GitHub Pages hosts the frontend only. Django backend APIs must be deployed to a backend host
-(Render, Railway, Azure, etc.) for full end-to-end functionality in the live preview.
+The live Pages build is demo-only by design. It uses browser-local sample records and resets
+when demo storage is cleared.
+
+If you want a backend-connected deployment instead of demo mode, set:
+
+- `VITE_DEMO_MODE=false`
+- `VITE_API_BASE_URL=https://<your-backend-domain>/api`
+
+For a full setup checklist (demo-only live mode and backend-connected mode), see:
+
+- `DEMO_LIVE_SETUP.md`
 
 ### Lint
 
@@ -122,6 +135,20 @@ py -3 manage.py migrate
 py -3 manage.py seed_initial_data --password "ChangeMe123!"
 ```
 
+This command now seeds a full demo dataset, including:
+- role-ready users
+- farmer profiles with mixed verification states
+- active and archived programs/interventions
+- inventory records with low-stock and out-of-stock alerts
+- intervention applications with pending/approved/rejected statuses
+- distribution records with pending/released/delivered/delayed/rescheduled/cancelled flows
+
+To refresh passwords for existing demo users:
+
+```bash
+py -3 manage.py seed_initial_data --password "ChangeMe123!" --reset-passwords
+```
+
 ### Run Backend Server
 
 ```bash
@@ -134,6 +161,8 @@ py -3 manage.py runserver
 - `staff` / `ChangeMe123!`
 - `farmer` / `ChangeMe123!`
 - `distributor` / `ChangeMe123!`
+
+Additional seeded demo users are created for realistic list and workflow coverage.
 
 ## Available Scripts
 

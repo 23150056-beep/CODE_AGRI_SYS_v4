@@ -140,8 +140,8 @@ function AdminDashboardPage() {
         pendingFarmerVerifications > 0
           ? {
               id: 'farmers-pending',
-              label: `Prepare staff coverage for ${pendingFarmerVerifications} farmer credential verification(s).`,
-              to: '/admin/users?filter=staff&sort=joined_desc&page_size=20',
+              label: `Review ${pendingFarmerVerifications} farmer credential verification(s).`,
+              to: '/admin/users?verification_status=pending',
             }
           : null,
         pendingApplications > 0
@@ -210,40 +210,16 @@ function AdminDashboardPage() {
   }, [loadDashboardMetrics])
 
   return (
-    <section className="dashboard-grid">
-      {error ? <p className="error-text panel wide">{error}</p> : null}
-
-      <MetricCard
-        title="Active Programs"
-        value={isLoading ? '...' : String(metrics.activePrograms)}
-        hint={
-          isLoading
-            ? 'Loading program metrics...'
-            : `${metrics.endingSoonPrograms} ending within 90 days, ${metrics.totalInterventions} interventions configured`
-        }
-      />
-      <MetricCard
-        title="Inventory Alerts"
-        value={isLoading ? '...' : String(metrics.inventoryAlerts)}
-        hint={
-          isLoading
-            ? 'Loading inventory metrics...'
-            : `${metrics.inventoryTracked} items tracked, threshold <= 10 units`
-        }
-      />
-      <MetricCard
-        title="Pending User Actions"
-        value={isLoading ? '...' : String(metrics.pendingActions)}
-        hint={
-          isLoading
-            ? 'Loading queue metrics...'
-            : `${metrics.usersWithoutRole} users w/o roles, ${metrics.pendingFarmerVerifications} farmer verifications pending`
-        }
-      />
-
-      <article className="panel wide">
-        <div className="dashboard-queue-header">
-          <h3>Administration Queue</h3>
+    <section className="page-shell">
+      <div className="page-hero">
+        <div>
+          <p className="eyebrow">Admin Control Center</p>
+          <h3 className="page-title">Operations Snapshot</h3>
+          <p className="page-subtitle">
+            Monitor programs, inventory pressure, and pending actions in one queue.
+          </p>
+        </div>
+        <div className="page-hero-actions">
           <button
             type="button"
             className="ghost-button small"
@@ -253,27 +229,72 @@ function AdminDashboardPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
-        {lastUpdatedAt ? (
-          <p className="dashboard-queue-meta">
-            Last updated: {lastUpdatedAt.toLocaleString()}
-          </p>
-        ) : null}
-        {isLoading ? <p>Loading action queue...</p> : null}
-        {!isLoading && queueItems.length === 0 ? (
-          <p>No pending admin actions right now.</p>
-        ) : null}
-        {!isLoading && queueItems.length > 0 ? (
-          <ul>
-            {queueItems.map((item) => (
-              <li key={item.id}>
-                <Link to={item.to} className="dashboard-queue-link">
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </article>
+      </div>
+
+      {error ? <p className="error-text panel wide">{error}</p> : null}
+
+      <div className="dashboard-grid">
+        <MetricCard
+          title="Active Programs"
+          value={isLoading ? '...' : String(metrics.activePrograms)}
+          icon="target"
+          tone="tertiary"
+          hint={
+            isLoading
+              ? 'Loading program metrics...'
+              : `${metrics.endingSoonPrograms} ending within 90 days, ${metrics.totalInterventions} interventions configured`
+          }
+        />
+        <MetricCard
+          title="Inventory Alerts"
+          value={isLoading ? '...' : String(metrics.inventoryAlerts)}
+          icon="inventory_2"
+          tone="secondary"
+          hint={
+            isLoading
+              ? 'Loading inventory metrics...'
+              : `${metrics.inventoryTracked} items tracked, threshold <= 10 units`
+          }
+        />
+        <MetricCard
+          title="Pending User Actions"
+          value={isLoading ? '...' : String(metrics.pendingActions)}
+          icon="priority_high"
+          tone="error"
+          hint={
+            isLoading
+              ? 'Loading queue metrics...'
+              : `${metrics.usersWithoutRole} users w/o roles, ${metrics.pendingFarmerVerifications} farmer verifications pending`
+          }
+        />
+
+        <article className="panel wide page-card">
+          <div className="dashboard-queue-header">
+            <h3>Administration Queue</h3>
+            <span className="section-chip">Live Queue</span>
+          </div>
+          {lastUpdatedAt ? (
+            <p className="dashboard-queue-meta">
+              Last updated: {lastUpdatedAt.toLocaleString()}
+            </p>
+          ) : null}
+          {isLoading ? <p>Loading action queue...</p> : null}
+          {!isLoading && queueItems.length === 0 ? (
+            <p>No pending admin actions right now.</p>
+          ) : null}
+          {!isLoading && queueItems.length > 0 ? (
+            <ul>
+              {queueItems.map((item) => (
+                <li key={item.id}>
+                  <Link to={item.to} className="dashboard-queue-link">
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </article>
+      </div>
     </section>
   )
 }

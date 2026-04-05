@@ -26,6 +26,7 @@ function DistributionAssignmentPage() {
   const [inventoryItems, setInventoryItems] = useState([])
   const [distributions, setDistributions] = useState([])
   const [statusFilter, setStatusFilter] = useState('All')
+  const [applicationSearchTerm, setApplicationSearchTerm] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [busyIds, setBusyIds] = useState([])
   const [releaseBusyIds, setReleaseBusyIds] = useState([])
@@ -119,12 +120,34 @@ function DistributionAssignmentPage() {
   }, [distributors])
 
   const filteredApplications = useMemo(() => {
-    if (statusFilter === 'All') {
-      return applications
-    }
+    const normalizedSearch = applicationSearchTerm.trim().toLowerCase()
 
-    return applications.filter((item) => item.status === statusFilter)
-  }, [applications, statusFilter])
+    const byStatus =
+      statusFilter === 'All'
+        ? applications
+        : applications.filter((item) => item.status === statusFilter)
+
+    return byStatus.filter((item) => {
+      if (!normalizedSearch) {
+        return true
+      }
+
+      const farmerName = farmerNameById[item.farmer] || `Farmer #${item.farmer}`
+      const interventionName =
+        interventionNameById[item.intervention] ||
+        `Intervention #${item.intervention}`
+
+      return [farmerName, interventionName, item.status, item.remarks, String(item.id)]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(normalizedSearch))
+    })
+  }, [
+    applicationSearchTerm,
+    applications,
+    farmerNameById,
+    interventionNameById,
+    statusFilter,
+  ])
 
   const approvedApplications = useMemo(
     () => applications.filter((item) => item.status === 'Approved'),
@@ -135,6 +158,18 @@ function DistributionAssignmentPage() {
     () => distributions.filter((item) => item.status === 'Pending').map((item) => item.id),
     [distributions],
   )
+
+  const pendingApplicationCount = useMemo(
+    () => applications.filter((item) => item.status === 'Pending').length,
+    [applications],
+  )
+
+  const rejectedApplicationCount = useMemo(
+    () => applications.filter((item) => item.status === 'Rejected').length,
+    [applications],
+  )
+
+  const pendingDistributionCount = pendingDistributionIds.length
 
   const releasableSelectedIds = useMemo(() => {
     const pendingIds = new Set(
@@ -347,11 +382,44 @@ function DistributionAssignmentPage() {
   }
 
   return (
-    <section className="panel">
-      <h3>Distribution Assignment</h3>
+    <section className="page-shell">
+      <div className="page-hero">
+        <div>
+          <p className="eyebrow">Staff Distribution Desk</p>
+          <h3 className="page-title">Distribution Assignment</h3>
+          <p className="page-subtitle">
+            Move approved applications into assignment and release workflows.
+          </p>
+        </div>
+      </div>
+
+      <article className="panel page-card page-card--elevated">
+
+      <div className="dashboard-grid">
+        <article className="metric-card">
+          <p className="metric-card__title">Pending Applications</p>
+          <p className="metric-card__value">{pendingApplicationCount}</p>
+          <p className="metric-card__hint">Needs status review by staff</p>
+        </article>
+        <article className="metric-card">
+          <p className="metric-card__title">Approved for Assignment</p>
+          <p className="metric-card__value">{approvedApplications.length}</p>
+          <p className="metric-card__hint">Eligible for distribution release</p>
+        </article>
+        <article className="metric-card">
+          <p className="metric-card__title">Pending Distributions</p>
+          <p className="metric-card__value">{pendingDistributionCount}</p>
+          <p className="metric-card__hint">Queued records ready for dispatch</p>
+        </article>
+      </div>
 
       {error ? <p className="error-text">{error}</p> : null}
       {successMessage ? <p className="success-text">{successMessage}</p> : null}
+
+      <div className="section-head">
+        <h4>Intervention Applications</h4>
+        <span className="section-chip">Verification</span>
+      </div>
 
       <div className="toolbar-row">
         <label htmlFor="status-filter">Filter by Status</label>
@@ -366,6 +434,15 @@ function DistributionAssignmentPage() {
             </option>
           ))}
         </select>
+
+        <label htmlFor="application-search">Search</label>
+        <input
+          id="application-search"
+          type="search"
+          value={applicationSearchTerm}
+          onChange={(event) => setApplicationSearchTerm(event.target.value)}
+          placeholder="Farmer, intervention, status, or ID"
+        />
       </div>
 
       {isLoading ? <p>Loading intervention applications...</p> : null}
@@ -395,7 +472,19 @@ function DistributionAssignmentPage() {
                     {interventionNameById[item.intervention] ||
                       `Intervention #${item.intervention}`}
                   </td>
-                  <td>{item.status}</td>
+                  <td>
+                    <span
+                      className={`status-pill ${
+                        item.status === 'Approved'
+                          ? 'status-pill--active'
+                          : item.status === 'Rejected'
+                            ? 'status-pill--inactive'
+                            : 'status-pill--warning'
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+                  </td>
                   <td>{new Date(item.application_date).toLocaleDateString()}</td>
                   <td>{item.remarks || 'No remarks'}</td>
                   <td>
@@ -422,7 +511,10 @@ function DistributionAssignmentPage() {
 
       <hr className="divider" />
 
-      <h4>Create Distribution Assignment</h4>
+      <div className="section-head">
+        <h4>Create Distribution Assignment</h4>
+        <span className="section-chip">Assignment</span>
+      </div>
       {approvedApplications.length === 0 ? (
         <p>No approved applications available for assignment.</p>
       ) : (
@@ -503,8 +595,11 @@ function DistributionAssignmentPage() {
         </form>
       )}
 
-      <div className="top-gap">
-        <h4>Recent Distribution Records</h4>
+      <div className="top-gap page-card">
+        <div className="section-head">
+          <h4>Recent Distribution Records</h4>
+          <span className="section-chip">Release</span>
+        </div>
         <div className="inline-actions">
           <button
             type="button"
@@ -532,6 +627,12 @@ function DistributionAssignmentPage() {
           </button>
         </div>
         <p>{releasableSelectedIds.length} pending record(s) selected.</p>
+        {rejectedApplicationCount > 0 ? (
+          <p>
+            <strong>{rejectedApplicationCount}</strong> rejected application(s)
+            currently require farmer updates before assignment.
+          </p>
+        ) : null}
         {distributions.length === 0 ? (
           <p>No distribution records yet.</p>
         ) : (
@@ -573,7 +674,19 @@ function DistributionAssignmentPage() {
                           : 'Unassigned')}
                     </td>
                     <td>{item.quantity_released}</td>
-                    <td>{item.status}</td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          item.status === 'Released' || item.status === 'Delivered'
+                            ? 'status-pill--active'
+                            : item.status === 'Delayed' || item.status === 'Rejected'
+                              ? 'status-pill--inactive'
+                              : 'status-pill--warning'
+                        }`}
+                      >
+                        {item.status}
+                      </span>
+                    </td>
                     <td>{new Date(item.distribution_date).toLocaleDateString()}</td>
                     <td>
                       <button
@@ -627,6 +740,7 @@ function DistributionAssignmentPage() {
           </div>
         ) : null}
       </div>
+      </article>
     </section>
   )
 }

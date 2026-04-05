@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import ConfirmDialog from '../../components/common/ConfirmDialog'
+import { getInventoryAlerts } from '../../services/inventory'
 import {
+  archiveIntervention,
+  archiveProgram,
   createIntervention,
   createProgram,
-  deleteIntervention,
-  deleteProgram,
   getInterventions,
   getPrograms,
+  unarchiveIntervention,
+  unarchiveProgram,
   updateIntervention,
   updateProgram,
 } from '../../services/programs'
@@ -75,6 +78,28 @@ function createClosedConfirmDialogState() {
 
 function ProgramManagementPage() {
   const [searchParams] = useSearchParams()
+  const searchParamsKey = searchParams.toString()
+  const requestedShowArchivedFromQuery = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey)
+    const archived = (params.get('archived') || '').trim().toLowerCase()
+    return archived === '1' || archived === 'true'
+  }, [searchParamsKey])
+  const requestedProgramFilterFromQuery = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey)
+    return (params.get('program') || '').trim()
+  }, [searchParamsKey])
+  const requestedInterventionSearchFromQuery = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey)
+    return (params.get('intervention_search') || '').trim()
+  }, [searchParamsKey])
+  const requestedInterventionSortFromQuery = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey)
+    return (params.get('intervention_sort') || '').trim().toLowerCase()
+  }, [searchParamsKey])
+  const requestedFocusFromQuery = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey)
+    return (params.get('focus') || '').trim().toLowerCase()
+  }, [searchParamsKey])
   const interventionsSectionRef = useRef(null)
   const [programs, setPrograms] = useState([])
   const [interventions, setInterventions] = useState([])
@@ -87,6 +112,7 @@ function ProgramManagementPage() {
   const [deletingInterventionIds, setDeletingInterventionIds] = useState([])
   const [editingProgramId, setEditingProgramId] = useState(null)
   const [editingInterventionId, setEditingInterventionId] = useState(null)
+  const [showArchivedRecords, setShowArchivedRecords] = useState(false)
   const [selectedProgramFilter, setSelectedProgramFilter] = useState('all')
   const [interventionSearchTerm, setInterventionSearchTerm] = useState('')
   const [interventionSortKey, setInterventionSortKey] = useState('start_asc')
@@ -101,6 +127,10 @@ function ProgramManagementPage() {
   const [interventionFieldErrors, setInterventionFieldErrors] = useState({})
   const [programEditFieldErrors, setProgramEditFieldErrors] = useState({})
   const [interventionEditFieldErrors, setInterventionEditFieldErrors] = useState({})
+  const [inventoryAlertsPayload, setInventoryAlertsPayload] = useState({
+    summary: { critical: 0, warning: 0, total_alerts: 0 },
+    alerts: [],
+  })
   const [confirmDialog, setConfirmDialog] = useState(createClosedConfirmDialogState)
   const confirmResolverRef = useRef(null)
 
@@ -138,18 +168,22 @@ function ProgramManagementPage() {
     async function loadData() {
       try {
         setIsLoading(true)
-        const [programData, interventionData] = await Promise.all([
-          getPrograms(),
-          getInterventions(),
+        const [programData, interventionData, inventoryAlerts] = await Promise.all([
+          getPrograms({ includeArchived: true }),
+          getInterventions({ includeArchived: true }),
+          getInventoryAlerts(),
         ])
 
         setPrograms(programData)
         setInterventions(interventionData)
+        setInventoryAlertsPayload(inventoryAlerts)
 
-        if (programData.length > 0) {
+        const activePrograms = programData.filter((item) => !item.is_archived)
+
+        if (activePrograms.length > 0) {
           setInterventionForm((prev) => ({
             ...prev,
-            program: prev.program || String(programData[0].id),
+            program: prev.program || String(activePrograms[0].id),
           }))
         }
       } catch (requestError) {
@@ -168,23 +202,46 @@ function ProgramManagementPage() {
     return Object.fromEntries(entries)
   }, [programs])
 
+  const activePrograms = useMemo(
+    () => programs.filter((item) => !item.is_archived),
+    [programs],
+  )
+
+  const visiblePrograms = useMemo(
+    () =>
+      showArchivedRecords
+        ? programs
+        : programs.filter((item) => !item.is_archived),
+    [programs, showArchivedRecords],
+  )
+
+  const visibleInterventionsBase = useMemo(
+    () =>
+      showArchivedRecords
+        ? interventions
+        : interventions.filter((item) => !item.is_archived),
+    [interventions, showArchivedRecords],
+  )
+
   const interventionCountByProgramId = useMemo(() => {
     const counts = {}
 
-    interventions.forEach((item) => {
+    visibleInterventionsBase.forEach((item) => {
       counts[item.program] = (counts[item.program] || 0) + 1
     })
 
     return counts
-  }, [interventions])
+  }, [visibleInterventionsBase])
 
   const filteredInterventions = useMemo(() => {
     const normalizedSearch = interventionSearchTerm.trim().toLowerCase()
 
     const byProgram =
       selectedProgramFilter === 'all'
-        ? interventions
-        : interventions.filter((item) => String(item.program) === selectedProgramFilter)
+        ? visibleInterventionsBase
+        : visibleInterventionsBase.filter(
+            (item) => String(item.program) === selectedProgramFilter,
+          )
 
     const bySearch = byProgram.filter((item) => {
       if (!normalizedSearch) {
@@ -224,10 +281,38 @@ function ProgramManagementPage() {
   }, [
     interventionSearchTerm,
     interventionSortKey,
-    interventions,
+    visibleInterventionsBase,
     programNameById,
     selectedProgramFilter,
   ])
+
+  useEffect(() => {
+    setShowArchivedRecords(requestedShowArchivedFromQuery)
+  }, [requestedShowArchivedFromQuery])
+
+  useEffect(() => {
+    if (activePrograms.length === 0) {
+      setInterventionForm((prev) =>
+        prev.program ? { ...prev, program: '' } : prev,
+      )
+      return
+    }
+
+    setInterventionForm((prev) => {
+      const selectedProgram = programs.find(
+        (item) => String(item.id) === prev.program,
+      )
+
+      if (!selectedProgram || selectedProgram.is_archived) {
+        return {
+          ...prev,
+          program: String(activePrograms[0].id),
+        }
+      }
+
+      return prev
+    })
+  }, [activePrograms, programs])
 
   const editingProgram = useMemo(
     () => programs.find((item) => item.id === editingProgramId) || null,
@@ -238,6 +323,31 @@ function ProgramManagementPage() {
     () => interventions.find((item) => item.id === editingInterventionId) || null,
     [interventions, editingInterventionId],
   )
+
+  const activeProgramsCount = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    return activePrograms.filter(
+      (item) => item.start_date <= today && item.end_date >= today,
+    ).length
+  }, [activePrograms])
+
+  const programsEndingSoonCount = useMemo(() => {
+    const today = new Date()
+    const thirtyDaysFromNow = new Date(today)
+    thirtyDaysFromNow.setDate(today.getDate() + 30)
+
+    return activePrograms.filter((item) => {
+      const endDate = new Date(item.end_date)
+      return endDate >= today && endDate <= thirtyDaysFromNow
+    }).length
+  }, [activePrograms])
+
+  const openInterventionsCount = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    return interventions.filter(
+      (item) => !item.is_archived && item.end_date >= today,
+    ).length
+  }, [interventions])
 
   const hasUnsavedProgramEditChanges = useMemo(() => {
     if (!editingProgram) {
@@ -291,25 +401,23 @@ function ProgramManagementPage() {
   )
 
   useEffect(() => {
-    const requestedProgramFilter = (searchParams.get('program') || '').trim()
-    const requestedInterventionSearch =
-      (searchParams.get('intervention_search') || '').trim()
-    const requestedInterventionSort =
-      (searchParams.get('intervention_sort') || '').trim().toLowerCase()
+    const filterablePrograms = showArchivedRecords ? programs : activePrograms
 
-    if (!requestedProgramFilter) {
+    if (!requestedProgramFilterFromQuery) {
       setSelectedProgramFilter('all')
-    } else if (requestedProgramFilter === 'all') {
+    } else if (requestedProgramFilterFromQuery === 'all') {
       setSelectedProgramFilter('all')
     } else if (
-      programs.some((item) => String(item.id) === requestedProgramFilter)
+      filterablePrograms.some(
+        (item) => String(item.id) === requestedProgramFilterFromQuery,
+      )
     ) {
-      setSelectedProgramFilter(requestedProgramFilter)
+      setSelectedProgramFilter(requestedProgramFilterFromQuery)
     } else {
       setSelectedProgramFilter('all')
     }
 
-    setInterventionSearchTerm(requestedInterventionSearch)
+    setInterventionSearchTerm(requestedInterventionSearchFromQuery)
 
     if (
       [
@@ -319,18 +427,23 @@ function ProgramManagementPage() {
         'end_desc',
         'name_asc',
         'name_desc',
-      ].includes(requestedInterventionSort)
+      ].includes(requestedInterventionSortFromQuery)
     ) {
-      setInterventionSortKey(requestedInterventionSort)
+      setInterventionSortKey(requestedInterventionSortFromQuery)
     } else {
       setInterventionSortKey('start_asc')
     }
-  }, [programs, searchParams])
+  }, [
+    activePrograms,
+    programs,
+    requestedInterventionSearchFromQuery,
+    requestedInterventionSortFromQuery,
+    requestedProgramFilterFromQuery,
+    showArchivedRecords,
+  ])
 
   useEffect(() => {
-    const requestedFocus = (searchParams.get('focus') || '').trim().toLowerCase()
-
-    if (requestedFocus !== 'interventions' || isLoading) {
+    if (requestedFocusFromQuery !== 'interventions' || isLoading) {
       return
     }
 
@@ -338,7 +451,22 @@ function ProgramManagementPage() {
       behavior: 'smooth',
       block: 'start',
     })
-  }, [isLoading, searchParams])
+  }, [isLoading, requestedFocusFromQuery])
+
+  useEffect(() => {
+    if (selectedProgramFilter === 'all') {
+      return
+    }
+
+    const selectablePrograms = showArchivedRecords ? programs : activePrograms
+    const selectedStillVisible = selectablePrograms.some(
+      (item) => String(item.id) === selectedProgramFilter,
+    )
+
+    if (!selectedStillVisible) {
+      setSelectedProgramFilter('all')
+    }
+  }, [activePrograms, programs, selectedProgramFilter, showArchivedRecords])
 
   function requestConfirmation({
     title,
@@ -467,6 +595,19 @@ function ProgramManagementPage() {
       return
     }
 
+    const selectedProgram = programs.find(
+      (item) => String(item.id) === interventionForm.program,
+    )
+
+    if (!selectedProgram || selectedProgram.is_archived) {
+      setError('Select an active program before creating an intervention.')
+      setInterventionFieldErrors((prev) => ({
+        ...prev,
+        program: 'Program must be active.',
+      }))
+      return
+    }
+
     if (
       !validateDates(
         interventionForm.start_date,
@@ -513,21 +654,23 @@ function ProgramManagementPage() {
     }
   }
 
-  async function handleDeleteProgram(programId) {
-    const targetProgram = programs.find((item) => item.id === programId)
+  async function handleToggleProgramArchive(program) {
+    const shouldArchive = !program.is_archived
     const linkedInterventionCount = interventions.filter(
-      (item) => item.program === programId,
+      (item) => item.program === program.id && !item.is_archived,
     ).length
 
-    const confirmationMessage = linkedInterventionCount
-      ? `Delete program "${targetProgram?.name || programId}"? This will also delete ${linkedInterventionCount} linked intervention(s).`
-      : `Delete program "${targetProgram?.name || programId}"?`
+    const confirmationMessage = shouldArchive
+      ? linkedInterventionCount
+        ? `Archive program "${program.name}"? This will also archive ${linkedInterventionCount} linked intervention(s).`
+        : `Archive program "${program.name}"?`
+      : `Restore program "${program.name}" from archive?`
 
     const confirmed = await requestConfirmation({
-      title: 'Delete Program',
+      title: shouldArchive ? 'Archive Program' : 'Restore Program',
       message: confirmationMessage,
-      confirmLabel: 'Delete Program',
-      isDestructive: true,
+      confirmLabel: shouldArchive ? 'Archive Program' : 'Restore Program',
+      isDestructive: shouldArchive,
     })
 
     if (!confirmed) {
@@ -537,59 +680,79 @@ function ProgramManagementPage() {
     try {
       setError('')
       setSuccessMessage('')
-      setDeletingProgramIds((prev) => [...prev, programId])
+      setDeletingProgramIds((prev) => [...prev, program.id])
 
-      await deleteProgram(programId)
-      const remainingPrograms = programs.filter((item) => item.id !== programId)
-      const remainingInterventions = interventions.filter(
-        (item) => item.program !== programId,
+      const updatedProgram = shouldArchive
+        ? await archiveProgram(program.id)
+        : await unarchiveProgram(program.id)
+
+      setPrograms((prev) =>
+        prev.map((item) => (item.id === program.id ? updatedProgram : item)),
       )
 
-      setPrograms(remainingPrograms)
-      setInterventions(remainingInterventions)
-
-      if (editingProgramId === programId) {
-        setEditingProgramId(null)
+      if (shouldArchive) {
+        setInterventions((prev) =>
+          prev.map((item) =>
+            item.program === program.id ? { ...item, is_archived: true } : item,
+          ),
+        )
       }
 
-      if (
-        editingInterventionId &&
-        !remainingInterventions.some((item) => item.id === editingInterventionId)
-      ) {
-        setEditingInterventionId(null)
+      if (editingProgramId === program.id && shouldArchive) {
+        resetProgramEditState()
       }
 
-      if (interventionForm.program === String(programId)) {
+      if (editingInterventionId !== null && shouldArchive) {
+        const linkedEditingIntervention = interventions.find(
+          (item) => item.id === editingInterventionId,
+        )
+
+        if (linkedEditingIntervention?.program === program.id) {
+          resetInterventionEditState()
+        }
+      }
+
+      if (interventionForm.program === String(program.id) && shouldArchive) {
+        const fallbackProgram = activePrograms.find((item) => item.id !== program.id)
         setInterventionForm((prev) => ({
           ...prev,
-          program: remainingPrograms[0] ? String(remainingPrograms[0].id) : '',
+          program: fallbackProgram ? String(fallbackProgram.id) : '',
         }))
       }
 
-      if (selectedProgramFilter === String(programId)) {
+      if (selectedProgramFilter === String(program.id) && shouldArchive) {
         setSelectedProgramFilter('all')
       }
 
-      setSuccessMessage('Program deleted successfully.')
+      setSuccessMessage(
+        shouldArchive
+          ? 'Program archived successfully.'
+          : 'Program restored successfully.',
+      )
     } catch (requestError) {
-      const parsed = parseApiErrorDetails(requestError, 'Unable to delete program.')
+      const parsed = parseApiErrorDetails(
+        requestError,
+        shouldArchive ? 'Unable to archive program.' : 'Unable to restore program.',
+      )
       setError(parsed.message)
     } finally {
-      setDeletingProgramIds((prev) => prev.filter((id) => id !== programId))
+      setDeletingProgramIds((prev) => prev.filter((id) => id !== program.id))
     }
   }
 
-  async function handleDeleteIntervention(interventionId) {
-    const targetIntervention = interventions.find((item) => item.id === interventionId)
-    const parentProgramName = programNameById[targetIntervention?.program]
+  async function handleToggleInterventionArchive(intervention) {
+    const shouldArchive = !intervention.is_archived
+    const parentProgramName = programNameById[intervention.program]
 
     const confirmed = await requestConfirmation({
-      title: 'Delete Intervention',
-      message: `Delete intervention "${targetIntervention?.name || interventionId}"${
+      title: shouldArchive ? 'Archive Intervention' : 'Restore Intervention',
+      message: `${shouldArchive ? 'Archive' : 'Restore'} intervention "${
+        intervention.name
+      }"${
         parentProgramName ? ` under program "${parentProgramName}"` : ''
       }?`,
-      confirmLabel: 'Delete Intervention',
-      isDestructive: true,
+      confirmLabel: shouldArchive ? 'Archive Intervention' : 'Restore Intervention',
+      isDestructive: shouldArchive,
     })
 
     if (!confirmed) {
@@ -599,24 +762,39 @@ function ProgramManagementPage() {
     try {
       setError('')
       setSuccessMessage('')
-      setDeletingInterventionIds((prev) => [...prev, interventionId])
+      setDeletingInterventionIds((prev) => [...prev, intervention.id])
 
-      await deleteIntervention(interventionId)
-      setInterventions((prev) => prev.filter((item) => item.id !== interventionId))
+      const updatedIntervention = shouldArchive
+        ? await archiveIntervention(intervention.id)
+        : await unarchiveIntervention(intervention.id)
 
-      if (editingInterventionId === interventionId) {
-        setEditingInterventionId(null)
+      setInterventions((prev) =>
+        prev.map((item) =>
+          item.id === intervention.id ? updatedIntervention : item,
+        ),
+      )
+
+      if (editingInterventionId === intervention.id && shouldArchive) {
+        resetInterventionEditState()
       }
 
-      setSuccessMessage('Intervention deleted successfully.')
+      setSuccessMessage(
+        shouldArchive
+          ? 'Intervention archived successfully.'
+          : 'Intervention restored successfully.',
+      )
     } catch (requestError) {
       const parsed = parseApiErrorDetails(
         requestError,
-        'Unable to delete intervention.',
+        shouldArchive
+          ? 'Unable to archive intervention.'
+          : 'Unable to restore intervention.',
       )
       setError(parsed.message)
     } finally {
-      setDeletingInterventionIds((prev) => prev.filter((id) => id !== interventionId))
+      setDeletingInterventionIds((prev) =>
+        prev.filter((id) => id !== intervention.id),
+      )
     }
   }
 
@@ -654,6 +832,11 @@ function ProgramManagementPage() {
   }
 
   async function startEditingProgram(program) {
+    if (program.is_archived) {
+      setError('Restore the program before editing it.')
+      return
+    }
+
     if (
       editingProgramId !== null &&
       editingProgramId !== program.id &&
@@ -744,6 +927,11 @@ function ProgramManagementPage() {
   }
 
   async function startEditingIntervention(intervention) {
+    if (intervention.is_archived) {
+      setError('Restore the intervention before editing it.')
+      return
+    }
+
     if (
       editingInterventionId !== null &&
       editingInterventionId !== intervention.id &&
@@ -879,6 +1067,19 @@ function ProgramManagementPage() {
       return
     }
 
+    const selectedProgram = programs.find(
+      (item) => String(item.id) === interventionEditForm.program,
+    )
+
+    if (!selectedProgram || selectedProgram.is_archived) {
+      setError('Select an active program for intervention update.')
+      setInterventionEditFieldErrors((prev) => ({
+        ...prev,
+        program: 'Program must be active.',
+      }))
+      return
+    }
+
     if (
       !validateDates(
         interventionEditForm.start_date,
@@ -924,6 +1125,10 @@ function ProgramManagementPage() {
     const params = new URLSearchParams()
     params.set('focus', 'interventions')
 
+    if (showArchivedRecords) {
+      params.set('archived', '1')
+    }
+
     if (selectedProgramFilter !== 'all') {
       params.set('program', selectedProgramFilter)
     }
@@ -951,11 +1156,28 @@ function ProgramManagementPage() {
   }
 
   const shareableViewUrl = buildShareableViewUrl()
+  const visibleProgramsCount = visiblePrograms.length
+  const visibleInterventionsCount = visibleInterventionsBase.length
+  const planningAlertsSummary = inventoryAlertsPayload.summary || {
+    critical: 0,
+    warning: 0,
+    total_alerts: 0,
+  }
+  const topPlanningAlerts = (inventoryAlertsPayload.alerts || []).slice(0, 5)
 
   return (
-    <section className="panel">
-      <h3>Program Management</h3>
-      <p>Manage programs and interventions used by staff assignment workflows.</p>
+    <section className="page-shell">
+      <div className="page-hero">
+        <div>
+          <p className="eyebrow">Admin Program Desk</p>
+          <h3 className="page-title">Program Management</h3>
+          <p className="page-subtitle">
+            Manage programs and interventions used by staff assignment workflows.
+          </p>
+        </div>
+      </div>
+
+      <article className="panel page-card page-card--elevated">
 
       {error ? <p className="error-text">{error}</p> : null}
       {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -964,6 +1186,102 @@ function ProgramManagementPage() {
 
       {!isLoading ? (
         <>
+          <div className="dashboard-grid">
+            <article className="metric-card">
+              <p className="metric-card__title">Program Catalog</p>
+              <p className="metric-card__value">{visibleProgramsCount}</p>
+              <p className="metric-card__hint">Total configured programs</p>
+            </article>
+            <article className="metric-card">
+              <p className="metric-card__title">Active Programs</p>
+              <p className="metric-card__value">{activeProgramsCount}</p>
+              <p className="metric-card__hint">
+                {programsEndingSoonCount} ending within 30 days
+              </p>
+            </article>
+            <article className="metric-card">
+              <p className="metric-card__title">Open Interventions</p>
+              <p className="metric-card__value">{openInterventionsCount}</p>
+              <p className="metric-card__hint">
+                {planningAlertsSummary.total_alerts} inventory planning alert(s)
+              </p>
+            </article>
+          </div>
+
+          <div className="page-card top-gap">
+            <div className="section-head">
+              <h4>Inventory Planning Alerts</h4>
+              <span className="section-chip">Pre-Intervention Check</span>
+            </div>
+            <p>
+              Review inventory warning signals before creating interventions to avoid
+              under-supplied programs.
+            </p>
+            <p className="metric-card__hint">
+              Critical: {planningAlertsSummary.critical} | Warning:{' '}
+              {planningAlertsSummary.warning}
+            </p>
+
+            <div className="data-table-wrap top-gap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Available</th>
+                    <th>Threshold</th>
+                    <th>Reasons</th>
+                    <th>Severity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topPlanningAlerts.length === 0 ? (
+                    <tr>
+                      <td colSpan="5">No inventory alerts detected.</td>
+                    </tr>
+                  ) : (
+                    topPlanningAlerts.map((alertRow) => (
+                      <tr key={alertRow.inventory_id}>
+                        <td>{alertRow.item_name}</td>
+                        <td>{alertRow.available_quantity}</td>
+                        <td>{alertRow.low_stock_threshold}</td>
+                        <td>{(alertRow.reasons || []).join(', ')}</td>
+                        <td>
+                          <span
+                            className={`status-pill ${
+                              alertRow.severity === 'critical'
+                                ? 'status-pill--inactive'
+                                : alertRow.severity === 'warning'
+                                  ? 'status-pill--warning'
+                                  : 'status-pill--active'
+                            }`}
+                          >
+                            {alertRow.severity}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="toolbar-row top-gap">
+            <label className="checkbox-row" htmlFor="show-archived-records">
+              <input
+                id="show-archived-records"
+                type="checkbox"
+                checked={showArchivedRecords}
+                onChange={(event) => setShowArchivedRecords(event.target.checked)}
+              />
+              <span>Show archived records</span>
+            </label>
+            <p className="metric-card__hint">
+              Showing {visibleProgramsCount} programs and {visibleInterventionsCount}{' '}
+              interventions.
+            </p>
+          </div>
+
           <div className="dashboard-grid top-gap">
             <div className="panel">
               <h4>Create Program</h4>
@@ -1034,8 +1352,8 @@ function ProgramManagementPage() {
 
             <div className="panel">
               <h4>Create Intervention</h4>
-              {programs.length === 0 ? (
-                <p>Create a program first before adding interventions.</p>
+              {activePrograms.length === 0 ? (
+                <p>Create or restore an active program before adding interventions.</p>
               ) : (
                 <form className="stacked-form" onSubmit={handleCreateIntervention}>
                   <label htmlFor="intervention-program">Program</label>
@@ -1047,7 +1365,7 @@ function ProgramManagementPage() {
                     required
                   >
                     <option value="">Select program</option>
-                    {programs.map((item) => (
+                    {activePrograms.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name}
                       </option>
@@ -1123,9 +1441,12 @@ function ProgramManagementPage() {
             </div>
           </div>
 
-          <div className="top-gap">
-            <h4>Programs</h4>
-            {programs.length === 0 ? (
+          <div className="top-gap page-card">
+            <div className="section-head">
+              <h4>Programs</h4>
+              <span className="section-chip">Catalog</span>
+            </div>
+            {visiblePrograms.length === 0 ? (
               <p>No programs yet.</p>
             ) : (
               <div className="data-table-wrap">
@@ -1133,6 +1454,7 @@ function ProgramManagementPage() {
                   <thead>
                     <tr>
                       <th>Name</th>
+                      <th>Status</th>
                       <th>Start</th>
                       <th>End</th>
                       <th>Interventions</th>
@@ -1140,9 +1462,10 @@ function ProgramManagementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {programs.map((item) => (
+                    {visiblePrograms.map((item) => (
                       <tr key={item.id}>
                         <td>{item.name}</td>
+                        <td>{item.is_archived ? 'Archived' : 'Active'}</td>
                         <td>{item.start_date}</td>
                         <td>{item.end_date}</td>
                         <td>{interventionCountByProgramId[item.id] || 0}</td>
@@ -1152,17 +1475,21 @@ function ProgramManagementPage() {
                               type="button"
                               className="ghost-button small"
                               onClick={() => startEditingProgram(item)}
-                              disabled={isDeletingProgram(item.id)}
+                              disabled={isDeletingProgram(item.id) || item.is_archived}
                             >
                               Edit
                             </button>
                             <button
                               type="button"
                               className="ghost-button small"
-                              onClick={() => handleDeleteProgram(item.id)}
+                              onClick={() => handleToggleProgramArchive(item)}
                               disabled={isDeletingProgram(item.id)}
                             >
-                              {isDeletingProgram(item.id) ? 'Deleting...' : 'Delete'}
+                              {isDeletingProgram(item.id)
+                                ? 'Saving...'
+                                : item.is_archived
+                                  ? 'Restore'
+                                  : 'Archive'}
                             </button>
                           </div>
                         </td>
@@ -1256,8 +1583,11 @@ function ProgramManagementPage() {
             ) : null}
           </div>
 
-          <div className="top-gap" ref={interventionsSectionRef}>
-            <h4>Interventions</h4>
+          <div className="top-gap page-card" ref={interventionsSectionRef}>
+            <div className="section-head">
+              <h4>Interventions</h4>
+              <span className="section-chip">Windows</span>
+            </div>
             <div className="toolbar-row">
               <label htmlFor="intervention-filter">Filter by Program</label>
               <select
@@ -1266,7 +1596,7 @@ function ProgramManagementPage() {
                 onChange={(event) => setSelectedProgramFilter(event.target.value)}
               >
                 <option value="all">All Programs</option>
-                {programs.map((item) => (
+                {visiblePrograms.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
@@ -1330,6 +1660,7 @@ function ProgramManagementPage() {
                     <tr>
                       <th>Program</th>
                       <th>Name</th>
+                      <th>Status</th>
                       <th>Start</th>
                       <th>End</th>
                       <th>Actions</th>
@@ -1340,6 +1671,7 @@ function ProgramManagementPage() {
                       <tr key={item.id}>
                         <td>{programNameById[item.program] || `Program #${item.program}`}</td>
                         <td>{item.name}</td>
+                        <td>{item.is_archived ? 'Archived' : 'Active'}</td>
                         <td>{item.start_date}</td>
                         <td>{item.end_date}</td>
                         <td>
@@ -1348,17 +1680,23 @@ function ProgramManagementPage() {
                               type="button"
                               className="ghost-button small"
                               onClick={() => startEditingIntervention(item)}
-                              disabled={isDeletingIntervention(item.id)}
+                              disabled={
+                                isDeletingIntervention(item.id) || item.is_archived
+                              }
                             >
                               Edit
                             </button>
                             <button
                               type="button"
                               className="ghost-button small"
-                              onClick={() => handleDeleteIntervention(item.id)}
+                              onClick={() => handleToggleInterventionArchive(item)}
                               disabled={isDeletingIntervention(item.id)}
                             >
-                              {isDeletingIntervention(item.id) ? 'Deleting...' : 'Delete'}
+                              {isDeletingIntervention(item.id)
+                                ? 'Saving...'
+                                : item.is_archived
+                                  ? 'Restore'
+                                  : 'Archive'}
                             </button>
                           </div>
                         </td>
@@ -1383,7 +1721,7 @@ function ProgramManagementPage() {
                     required
                   >
                     <option value="">Select program</option>
-                    {programs.map((item) => (
+                    {activePrograms.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.name}
                       </option>
@@ -1483,6 +1821,7 @@ function ProgramManagementPage() {
         onConfirm={() => resolveConfirmation(true)}
         onCancel={() => resolveConfirmation(false)}
       />
+      </article>
     </section>
   )
 }

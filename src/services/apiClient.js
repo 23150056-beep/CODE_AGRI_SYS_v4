@@ -1,13 +1,19 @@
 import axios from 'axios'
 import { AUTH_STORAGE_KEY, AUTH_UPDATED_EVENT } from '../constants/auth'
+import { createDemoApiClient } from './demoApi'
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api'
+const DEMO_MODE = String(import.meta.env.VITE_DEMO_MODE ?? 'false')
+  .trim()
+  .toLowerCase() === 'true'
 
-const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 15000,
-})
+const apiClient = DEMO_MODE
+  ? createDemoApiClient()
+  : axios.create({
+      baseURL: API_BASE_URL,
+      timeout: 15000,
+    })
 
 let refreshPromise = null
 
@@ -33,63 +39,65 @@ function clearSession() {
   window.dispatchEvent(new Event(AUTH_UPDATED_EVENT))
 }
 
-apiClient.interceptors.request.use((config) => {
-  const session = readSession()
-  if (session?.accessToken) {
-    config.headers.Authorization = `Bearer ${session.accessToken}`
-  }
-
-  return config
-})
-
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config
-    const statusCode = error.response?.status
-
-    if (statusCode !== 401 || originalRequest?._retry) {
-      return Promise.reject(error)
-    }
-
+if (!DEMO_MODE) {
+  apiClient.interceptors.request.use((config) => {
     const session = readSession()
-    if (!session?.refreshToken) {
-      clearSession()
-      return Promise.reject(error)
+    if (session?.accessToken) {
+      config.headers.Authorization = `Bearer ${session.accessToken}`
     }
 
-    originalRequest._retry = true
+    return config
+  })
 
-    try {
-      if (!refreshPromise) {
-        refreshPromise = axios
-          .post(
-            `${API_BASE_URL}/auth/refresh/`,
-            { refresh: session.refreshToken },
-            { timeout: 15000 },
-          )
-          .then((response) => response.data)
-          .finally(() => {
-            refreshPromise = null
-          })
+  apiClient.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const originalRequest = error.config
+      const statusCode = error.response?.status
+
+      if (statusCode !== 401 || originalRequest?._retry) {
+        return Promise.reject(error)
       }
 
-      const refreshPayload = await refreshPromise
-      const nextSession = {
-        ...session,
-        accessToken: refreshPayload.access,
-        refreshToken: refreshPayload.refresh ?? session.refreshToken,
+      const session = readSession()
+      if (!session?.refreshToken) {
+        clearSession()
+        return Promise.reject(error)
       }
 
-      writeSession(nextSession)
-      originalRequest.headers.Authorization = `Bearer ${nextSession.accessToken}`
+      originalRequest._retry = true
 
-      return apiClient(originalRequest)
-    } catch (refreshError) {
-      clearSession()
-      return Promise.reject(refreshError)
-    }
-  },
-)
+      try {
+        if (!refreshPromise) {
+          refreshPromise = axios
+            .post(
+              `${API_BASE_URL}/auth/refresh/`,
+              { refresh: session.refreshToken },
+              { timeout: 15000 },
+            )
+            .then((response) => response.data)
+            .finally(() => {
+              refreshPromise = null
+            })
+        }
+
+        const refreshPayload = await refreshPromise
+        const nextSession = {
+          ...session,
+          accessToken: refreshPayload.access,
+          refreshToken: refreshPayload.refresh ?? session.refreshToken,
+        }
+
+        writeSession(nextSession)
+        originalRequest.headers.Authorization = `Bearer ${nextSession.accessToken}`
+
+        return apiClient(originalRequest)
+      } catch (refreshError) {
+        clearSession()
+        return Promise.reject(refreshError)
+      }
+    },
+  )
+}
 
 export default apiClient

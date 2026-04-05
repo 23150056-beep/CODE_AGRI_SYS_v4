@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { getDistributions } from '../../services/distributions'
-import { getInventoryItems } from '../../services/inventory'
+import {
+  createInventoryCatalogItem,
+  getInventoryAlerts,
+  getInventoryCatalogItems,
+  getInventoryItems,
+} from '../../services/inventory'
 
 const LOW_STOCK_THRESHOLD = 10
+const INVENTORY_GROUP_OPTIONS = [
+  { value: 'vegetable', label: 'Vegetable' },
+  { value: 'rice', label: 'Rice' },
+  { value: 'other', label: 'Other' },
+]
 
 function getInventoryHealthLabel(quantity) {
   if (quantity <= 0) {
@@ -21,7 +31,13 @@ function InventoryManagementPage() {
   const [searchParams] = useSearchParams()
   const [inventoryItems, setInventoryItems] = useState([])
   const [distributions, setDistributions] = useState([])
+  const [catalogItems, setCatalogItems] = useState([])
+  const [alertsPayload, setAlertsPayload] = useState({
+    summary: { critical: 0, warning: 0, total_alerts: 0 },
+    alerts: [],
+  })
   const [isLoading, setIsLoading] = useState(true)
+  const [isCreatingCatalogItem, setIsCreatingCatalogItem] = useState(false)
   const [inventoryFilter, setInventoryFilter] = useState('all')
   const [inventorySearchTerm, setInventorySearchTerm] = useState('')
   const [inventorySortKey, setInventorySortKey] = useState('quantity_asc')
@@ -29,7 +45,16 @@ function InventoryManagementPage() {
   const [distributionSearchTerm, setDistributionSearchTerm] = useState('')
   const [distributionSortKey, setDistributionSortKey] = useState('date_desc')
   const [error, setError] = useState('')
+  const [catalogError, setCatalogError] = useState('')
+  const [catalogSuccessMessage, setCatalogSuccessMessage] = useState('')
   const [shareableLinkMessage, setShareableLinkMessage] = useState('')
+  const [catalogForm, setCatalogForm] = useState({
+    name: '',
+    item_group: 'vegetable',
+    unit_of_measure: 'kg',
+    low_stock_threshold: 10,
+    is_active: true,
+  })
 
   useEffect(() => {
     async function loadData() {
@@ -37,13 +62,17 @@ function InventoryManagementPage() {
         setIsLoading(true)
         setError('')
 
-        const [inventoryData, distributionData] = await Promise.all([
+        const [inventoryData, distributionData, catalogData, alertData] = await Promise.all([
           getInventoryItems(),
           getDistributions(),
+          getInventoryCatalogItems(),
+          getInventoryAlerts(),
         ])
 
         setInventoryItems(inventoryData)
         setDistributions(distributionData)
+        setCatalogItems(catalogData)
+        setAlertsPayload(alertData)
       } catch (requestError) {
         setError(
           requestError?.response?.data?.detail ||
@@ -56,6 +85,64 @@ function InventoryManagementPage() {
 
     loadData()
   }, [])
+
+  function handleCatalogInputChange(event) {
+    const { name, type, value, checked } = event.target
+    setCatalogForm((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }))
+  }
+
+  async function handleCreateCatalogItem(event) {
+    event.preventDefault()
+
+    const payload = {
+      name: catalogForm.name.trim(),
+      item_group: catalogForm.item_group,
+      unit_of_measure: catalogForm.unit_of_measure.trim() || 'kg',
+      low_stock_threshold: Number(catalogForm.low_stock_threshold) || 0,
+      is_active: catalogForm.is_active,
+    }
+
+    if (!payload.name) {
+      setCatalogError('Item name is required.')
+      return
+    }
+
+    if (payload.low_stock_threshold < 0) {
+      setCatalogError('Low stock threshold cannot be negative.')
+      return
+    }
+
+    try {
+      setIsCreatingCatalogItem(true)
+      setCatalogError('')
+      setCatalogSuccessMessage('')
+      const created = await createInventoryCatalogItem(payload)
+      setCatalogItems((prev) =>
+        [...prev, created].sort((left, right) => left.name.localeCompare(right.name)),
+      )
+      setCatalogForm({
+        name: '',
+        item_group: 'vegetable',
+        unit_of_measure: payload.unit_of_measure,
+        low_stock_threshold: payload.low_stock_threshold,
+        is_active: true,
+      })
+      setCatalogSuccessMessage(`Added ${created.name} to inventory catalog.`)
+    } catch (requestError) {
+      const apiData = requestError?.response?.data
+      const message =
+        apiData?.name?.[0] ||
+        apiData?.low_stock_threshold?.[0] ||
+        apiData?.detail ||
+        'Unable to create inventory catalog item.'
+      setCatalogError(message)
+    } finally {
+      setIsCreatingCatalogItem(false)
+    }
+  }
 
   useEffect(() => {
     const nextInventoryFilter = (searchParams.get('inventory') || 'all')
@@ -207,14 +294,20 @@ function InventoryManagementPage() {
     [inventoryItems],
   )
 
-  const outOfStockCount = useMemo(
-    () => inventoryItems.filter((item) => Number(item.quantity_available) <= 0).length,
-    [inventoryItems],
+  const activeCatalogItemsCount = useMemo(
+    () => catalogItems.filter((item) => item.is_active).length,
+    [catalogItems],
   )
 
-  const pendingDistributionCount = useMemo(
-    () => distributions.filter((item) => item.status === 'Pending').length,
-    [distributions],
+  const planningAlertSummary = alertsPayload.summary || {
+    critical: 0,
+    warning: 0,
+    total_alerts: 0,
+  }
+
+  const topPlanningAlerts = useMemo(
+    () => (alertsPayload.alerts || []).slice(0, 6),
+    [alertsPayload.alerts],
   )
 
   function buildShareableViewUrl() {
@@ -264,12 +357,19 @@ function InventoryManagementPage() {
   const shareableViewUrl = buildShareableViewUrl()
 
   return (
-    <section className="panel">
-      <h3>Inventory Management</h3>
-      <p>
-        Track stock health and pending distribution workload with quick filters for
-        urgent operations.
-      </p>
+    <section className="page-shell page-shell--inventory">
+      <div className="page-hero">
+        <div>
+          <p className="eyebrow">Admin Inventory Desk</p>
+          <h3 className="page-title">Inventory Management</h3>
+          <p className="page-subtitle">
+            Track stock health and pending distribution workload with quick filters
+            for urgent operations.
+          </p>
+        </div>
+      </div>
+
+      <article className="panel page-card page-card--elevated inventory-overview-panel">
 
       <div className="inline-actions">
         <button
@@ -303,19 +403,208 @@ function InventoryManagementPage() {
           <p className="metric-card__hint">{lowStockCount} low stock alerts</p>
         </article>
         <article className="metric-card">
-          <p className="metric-card__title">Out of Stock Items</p>
-          <p className="metric-card__value">{outOfStockCount}</p>
-          <p className="metric-card__hint">Needs immediate replenishment</p>
+          <p className="metric-card__title">Catalog Items</p>
+          <p className="metric-card__value">{catalogItems.length}</p>
+          <p className="metric-card__hint">
+            {activeCatalogItemsCount} active item definition(s)
+          </p>
         </article>
         <article className="metric-card">
-          <p className="metric-card__title">Pending Distributions</p>
-          <p className="metric-card__value">{pendingDistributionCount}</p>
-          <p className="metric-card__hint">Queued for release</p>
+          <p className="metric-card__title">Planning Alerts</p>
+          <p className="metric-card__value">{planningAlertSummary.total_alerts}</p>
+          <p className="metric-card__hint">
+            {planningAlertSummary.critical} critical, {planningAlertSummary.warning}{' '}
+            warning
+          </p>
         </article>
       </div>
 
-      <div className="top-gap">
-        <h4>Stock Overview</h4>
+      <div className="page-card inventory-section-card top-gap">
+        <div className="section-head">
+          <h4>Item Catalog Setup</h4>
+          <span className="section-chip">Program Input Definitions</span>
+        </div>
+        <p>
+          Define core commodities such as rice and vegetables first. Program and
+          intervention planning can then reference these items and use stock alerts.
+        </p>
+
+        {catalogError ? <p className="error-text">{catalogError}</p> : null}
+        {catalogSuccessMessage ? (
+          <p className="success-text">{catalogSuccessMessage}</p>
+        ) : null}
+
+        <form className="stacked-form top-gap" onSubmit={handleCreateCatalogItem}>
+          <label htmlFor="catalog-name">Item Name</label>
+          <input
+            id="catalog-name"
+            name="name"
+            value={catalogForm.name}
+            onChange={handleCatalogInputChange}
+            placeholder="Example: Rice, Tomato, Eggplant"
+          />
+
+          <label htmlFor="catalog-group">Group</label>
+          <select
+            id="catalog-group"
+            name="item_group"
+            value={catalogForm.item_group}
+            onChange={handleCatalogInputChange}
+          >
+            {INVENTORY_GROUP_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor="catalog-unit">Unit of Measure</label>
+          <input
+            id="catalog-unit"
+            name="unit_of_measure"
+            value={catalogForm.unit_of_measure}
+            onChange={handleCatalogInputChange}
+            placeholder="kg, sack, crate"
+          />
+
+          <label htmlFor="catalog-threshold">Low Stock Threshold</label>
+          <input
+            id="catalog-threshold"
+            name="low_stock_threshold"
+            type="number"
+            min="0"
+            value={catalogForm.low_stock_threshold}
+            onChange={handleCatalogInputChange}
+          />
+
+          <label className="checkbox-row" htmlFor="catalog-is-active">
+            <input
+              id="catalog-is-active"
+              name="is_active"
+              type="checkbox"
+              checked={catalogForm.is_active}
+              onChange={handleCatalogInputChange}
+            />
+            Active item
+          </label>
+
+          <button type="submit" className="primary-button" disabled={isCreatingCatalogItem}>
+            {isCreatingCatalogItem ? 'Saving Item...' : 'Add Catalog Item'}
+          </button>
+        </form>
+
+        <div className="data-table-wrap top-gap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Group</th>
+                <th>Unit</th>
+                <th>Low Stock Threshold</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {catalogItems.length === 0 ? (
+                <tr>
+                  <td colSpan="5">No catalog items yet.</td>
+                </tr>
+              ) : (
+                catalogItems.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.item_group}</td>
+                    <td>{item.unit_of_measure}</td>
+                    <td>{item.low_stock_threshold}</td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          item.is_active
+                            ? 'status-pill--active'
+                            : 'status-pill--inactive'
+                        }`}
+                      >
+                        {item.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="page-card inventory-section-card top-gap">
+        <div className="section-head">
+          <h4>Planning Alerts</h4>
+          <span className="section-chip">Program Readiness</span>
+        </div>
+        <p>
+          Use these alerts before creating interventions so programs align with
+          actual inventory readiness.
+        </p>
+        <div className="inline-actions top-gap">
+          <Link className="ghost-button small" to="/admin/programs?focus=interventions">
+            Open Program Planning
+          </Link>
+        </div>
+
+        <div className="data-table-wrap top-gap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Group</th>
+                <th>Available</th>
+                <th>Threshold</th>
+                <th>Alert Reasons</th>
+                <th>Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topPlanningAlerts.length === 0 ? (
+                <tr>
+                  <td colSpan="6">No planning alerts at the moment.</td>
+                </tr>
+              ) : (
+                topPlanningAlerts.map((alertRow) => (
+                  <tr key={alertRow.inventory_id}>
+                    <td>{alertRow.item_name}</td>
+                    <td>{alertRow.item_group}</td>
+                    <td>{alertRow.available_quantity}</td>
+                    <td>{alertRow.low_stock_threshold}</td>
+                    <td>{(alertRow.reasons || []).join(', ')}</td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          alertRow.severity === 'critical'
+                            ? 'status-pill--inactive'
+                            : alertRow.severity === 'warning'
+                              ? 'status-pill--warning'
+                              : 'status-pill--active'
+                        }`}
+                      >
+                        {alertRow.severity}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      </article>
+
+      <div className="inventory-tables-panel">
+
+      <div className="page-card inventory-section-card">
+        <div className="section-head">
+          <h4>Stock Overview</h4>
+          <span className="section-chip">Inventory</span>
+        </div>
         <div className="toolbar-row">
           <label htmlFor="inventory-filter">Inventory Filter</label>
           <select
@@ -405,8 +694,11 @@ function InventoryManagementPage() {
         ) : null}
       </div>
 
-      <div className="top-gap">
-        <h4>Distribution Queue</h4>
+      <div className="page-card inventory-section-card">
+        <div className="section-head">
+          <h4>Distribution Queue</h4>
+          <span className="section-chip">Release Flow</span>
+        </div>
         <div className="toolbar-row">
           <label htmlFor="distribution-filter">Distribution Filter</label>
           <select
@@ -468,7 +760,19 @@ function InventoryManagementPage() {
                     <td>{item.farmer_name || `Farmer #${item.farmer}`}</td>
                     <td>{item.input_name || `Inventory #${item.input_inventory}`}</td>
                     <td>{item.quantity_released}</td>
-                    <td>{item.status}</td>
+                    <td>
+                      <span
+                        className={`status-pill ${
+                          item.status === 'Released'
+                            ? 'status-pill--active'
+                            : item.status === 'Pending'
+                              ? 'status-pill--warning'
+                              : 'status-pill--inactive'
+                        }`}
+                      >
+                        {item.status}
+                      </span>
+                    </td>
                     <td>
                       {item.assigned_distributor_name ||
                         (item.assigned_distributor
@@ -486,6 +790,7 @@ function InventoryManagementPage() {
             </table>
           </div>
         ) : null}
+      </div>
       </div>
     </section>
   )

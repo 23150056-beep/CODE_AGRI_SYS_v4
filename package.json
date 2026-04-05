@@ -10,7 +10,17 @@
     "dev:full": "concurrently -n backend,frontend -c yellow,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "screenshots:app:desktop": "set SCREENSHOT_VARIANT=desktop&& set SCREENSHOT_WIDTH=1536&& set SCREENSHOT_HEIGHT=960&& node scripts/capture-pages.mjs",
+    "screenshots:app:mobile": "set SCREENSHOT_VARIANT=mobile&& set SCREENSHOT_WIDTH=430&& set SCREENSHOT_HEIGHT=932&& node scripts/capture-pages.mjs",
+    "screenshots:stitch:desktop": "set SCREENSHOT_VARIANT=desktop&& set SCREENSHOT_WIDTH=1536&& set SCREENSHOT_HEIGHT=960&& node scripts/capture-stitch-pages.mjs",
+    "screenshots:stitch:mobile": "set SCREENSHOT_VARIANT=mobile&& set SCREENSHOT_WIDTH=430&& set SCREENSHOT_HEIGHT=932&& node scripts/capture-stitch-pages.mjs",
+    "screenshots:pack:desktop": "py -3 scripts/make_stitch_collages.py --latest-prefix stitch-pages-desktop- --tag desktop",
+    "screenshots:pack:mobile": "py -3 scripts/make_stitch_collages.py --latest-prefix stitch-pages-mobile- --tag mobile",
+    "screenshots:compare": "py -3 scripts/_tmp_route_compare.py",
+    "screenshots:pipeline:desktop": "npm run screenshots:app:desktop && npm run screenshots:stitch:desktop && npm run screenshots:pack:desktop",
+    "screenshots:pipeline:mobile": "npm run screenshots:app:mobile && npm run screenshots:stitch:mobile && npm run screenshots:pack:mobile",
+    "screenshots:pipeline:all": "npm run screenshots:pipeline:desktop && npm run screenshots:pipeline:mobile && npm run screenshots:compare"
   },
   "dependencies": {
     "axios": "^1.14.0",
@@ -28,6 +38,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "playwright": "^1.59.1",
     "vite": "^8.0.1"
   }
 }

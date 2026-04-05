@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   createFarmerApplication,
   getFarmerApplications,
@@ -12,9 +12,66 @@ function ApplyInterventionPage() {
   const [applications, setApplications] = useState([])
   const [selectedInterventionId, setSelectedInterventionId] = useState('')
   const [remarks, setRemarks] = useState('')
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all')
+  const [historySearchTerm, setHistorySearchTerm] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const pendingCount = useMemo(
+    () =>
+      applications.filter((item) => (item.status || '').toLowerCase() === 'pending')
+        .length,
+    [applications],
+  )
+
+  const approvedCount = useMemo(
+    () =>
+      applications.filter((item) => (item.status || '').toLowerCase() === 'approved')
+        .length,
+    [applications],
+  )
+
+  const rejectedCount = useMemo(
+    () =>
+      applications.filter((item) => (item.status || '').toLowerCase() === 'rejected')
+        .length,
+    [applications],
+  )
+
+  const interventionNameMap = useMemo(
+    () =>
+      Object.fromEntries(interventions.map((item) => [item.id, item.name])),
+    [interventions],
+  )
+
+  const filteredApplications = useMemo(() => {
+    const normalizedSearch = historySearchTerm.trim().toLowerCase()
+
+    return applications.filter((item) => {
+      const matchesStatus =
+        historyStatusFilter === 'all'
+          ? true
+          : (item.status || '').toLowerCase() === historyStatusFilter
+
+      if (!matchesStatus) {
+        return false
+      }
+
+      if (!normalizedSearch) {
+        return true
+      }
+
+      return [
+        interventionNameMap[item.intervention] || `Intervention #${item.intervention}`,
+        item.status,
+        item.remarks,
+        String(item.id),
+      ]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(normalizedSearch))
+    })
+  }, [applications, historySearchTerm, historyStatusFilter, interventionNameMap])
 
   useEffect(() => {
     async function loadData() {
@@ -83,19 +140,50 @@ function ApplyInterventionPage() {
   }
 
   function interventionNameById(interventionId) {
-    const intervention = interventions.find((item) => item.id === interventionId)
-    return intervention ? intervention.name : `Intervention #${interventionId}`
+    return interventionNameMap[interventionId] || `Intervention #${interventionId}`
   }
 
   return (
-    <section className="panel">
-      <h3>Apply for Intervention</h3>
+    <section className="page-shell">
+      <div className="page-hero">
+        <div>
+          <p className="eyebrow">Farmer Applications</p>
+          <h3 className="page-title">Apply for Intervention</h3>
+          <p className="page-subtitle">
+            Submit intervention requests and monitor status progression.
+          </p>
+        </div>
+      </div>
+
+      <article className="panel page-card page-card--elevated">
+
+      <div className="dashboard-grid">
+        <article className="metric-card">
+          <p className="metric-card__title">Total Applications</p>
+          <p className="metric-card__value">{applications.length}</p>
+          <p className="metric-card__hint">Filed intervention requests</p>
+        </article>
+        <article className="metric-card">
+          <p className="metric-card__title">Approved</p>
+          <p className="metric-card__value">{approvedCount}</p>
+          <p className="metric-card__hint">Ready for assignment</p>
+        </article>
+        <article className="metric-card">
+          <p className="metric-card__title">Pending</p>
+          <p className="metric-card__value">{pendingCount}</p>
+          <p className="metric-card__hint">Awaiting staff review</p>
+        </article>
+      </div>
 
       {error ? <p className="error-text">{error}</p> : null}
       {isLoading ? <p>Loading interventions...</p> : null}
 
       {!isLoading && interventions.length > 0 ? (
         <form className="stacked-form" onSubmit={handleSubmit}>
+          <div className="section-head">
+            <h3>Create Application</h3>
+            <span className="section-chip">Action</span>
+          </div>
           <label htmlFor="intervention">Intervention</label>
           <select
             id="intervention"
@@ -130,6 +218,46 @@ function ApplyInterventionPage() {
 
       {!isLoading && applications.length > 0 ? (
         <div className="data-table-wrap top-gap">
+          <div className="section-head">
+            <h3>Application History</h3>
+            <span className="section-chip">Recent</span>
+          </div>
+
+          <div className="toolbar-row">
+            <label htmlFor="application-history-status">Status</label>
+            <select
+              id="application-history-status"
+              value={historyStatusFilter}
+              onChange={(event) => setHistoryStatusFilter(event.target.value)}
+            >
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+
+            <label htmlFor="application-history-search">Search</label>
+            <input
+              id="application-history-search"
+              type="search"
+              value={historySearchTerm}
+              onChange={(event) => setHistorySearchTerm(event.target.value)}
+              placeholder="Intervention, status, remarks, or ID"
+            />
+          </div>
+
+          {filteredApplications.length === 0 ? (
+            <p>No application records match your current filters.</p>
+          ) : null}
+
+          {rejectedCount > 0 ? (
+            <p className="top-gap">
+              <strong>{rejectedCount}</strong> rejected application(s) may need
+              updated remarks and resubmission.
+            </p>
+          ) : null}
+
+          {filteredApplications.length > 0 ? (
           <table className="data-table">
             <thead>
               <tr>
@@ -140,18 +268,32 @@ function ApplyInterventionPage() {
               </tr>
             </thead>
             <tbody>
-              {applications.map((item) => (
+              {filteredApplications.map((item) => (
                 <tr key={item.id}>
                   <td>{interventionNameById(item.intervention)}</td>
-                  <td>{item.status}</td>
+                  <td>
+                    <span
+                      className={`status-pill ${
+                        item.status === 'Approved'
+                          ? 'status-pill--active'
+                          : item.status === 'Rejected'
+                            ? 'status-pill--inactive'
+                            : 'status-pill--warning'
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+                  </td>
                   <td>{new Date(item.application_date).toLocaleDateString()}</td>
                   <td>{item.remarks || 'No remarks'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          ) : null}
         </div>
       ) : null}
+      </article>
     </section>
   )
 }
