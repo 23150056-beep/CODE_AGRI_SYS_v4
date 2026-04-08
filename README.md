@@ -5,7 +5,10 @@ Frontend workspace for the Bauang Agricultural Trade Center Distribution Managem
 Current implementation status:
 - React + Vite frontend with role dashboards and protected routes is in place.
 - Django + DRF backend with JWT authentication and core domain APIs is implemented.
-- Staff farmer verification, farmer profile updates, and farmer intervention application screens are API-integrated.
+- Admin pages for users, programs, inventory, distributions, and operational reports are API-integrated.
+- Staff pages for dashboard, farmer verification, distributions, and operational reports are API-integrated.
+- Distributor dashboard and delivery status update pages are API-integrated for assigned records.
+- Farmer dashboard, profile updates, and intervention application screens are API-integrated.
 - Full system architecture and domain design are documented in `bauang_agricultural_trade_center_dms_plan.md`.
 
 ## Tech Stack
@@ -97,6 +100,19 @@ If you want a backend-connected deployment instead of demo mode, set:
 For a full setup checklist (demo-only live mode and backend-connected mode), see:
 
 - `DEMO_LIVE_SETUP.md`
+
+### Current Live Scope (Verified)
+
+The current role scope is validated against routes, API permissions, and runtime smoke flow (`backend/scripts/role_workflow_smoke.py`, PASS on 2026-04-07):
+
+- Admin: login, user management, program/intervention management, inventory management, distribution management (including release), and CSV export from operational reports.
+- Staff: login, farmer verification, distribution assignment/release timeline access, staff operational reports with CSV export, and API-level constrained access in user/program/inventory modules.
+- Distributor: login, assigned distribution visibility, and limited update to distribution `status` and `remarks` after release (allowed status values: `Delivered`, `Delayed`, `Rescheduled`).
+- Farmer: login, dashboard visibility, profile updates, and intervention application/history workflow.
+
+Known frontend gap in live scope:
+
+- Distributor currently has no dedicated frontend report route.
 
 ### Lint
 
@@ -197,41 +213,23 @@ agri_sys_v4/
 	vite.config.js
 ```
 
-## Product Scope (Planned)
+## Product Scope (Current)
 
-Core modules outlined in the system plan:
-- User management and role-based access control (Admin, Staff, Farmer, Distributor)
-- Farmer management
-- Inventory management
-- Distribution and intervention tracking
-- Mobile-responsive distributor workflows
+Implemented and currently available:
 
-## Project Roadmap
+- Role-based access control for Admin, Staff, Farmer, and Distributor.
+- User, program/intervention, inventory, and distribution management with role restrictions.
+- Distribution release and timeline tracking workflows.
+- Operational reporting page with CSV export (Admin and Staff frontend routes).
+- Mobile-responsive distributor delivery status workflow.
+- Demo-mode seeded dataset for realistic end-to-end walkthroughs on GitHub Pages.
 
-### Phase 1: Foundation (Completed)
-- Replaced template UI with DMS-oriented pages and role routes.
-- Added shared layout, auth context, route protection, and service modules.
-- Added Django backend with modular apps, JWT auth, and baseline APIs.
+Current boundaries and limitations:
 
-### Phase 2: Domain Modules (In Progress)
-- Farmer verification (staff) is connected to API.
-- Farmer profile and intervention application are connected to API.
-- Inventory and distributor workflows remain to be fully integrated.
-
-### Phase 3: API Integration
-- Expand integration coverage for admin/staff/distributor modules.
-- Add token refresh flow and stronger session handling.
-- Improve loading, validation, and error UX patterns.
-
-### Phase 4: Quality and Security
-- Expand linting and testing coverage.
-- Validate role-based access behavior for all major flows.
-- Run structured testing cycles: smoke, functional, integration, UI, security, stress, and load.
-
-### Phase 5: Release Readiness
-- Environment configuration and deployment pipeline.
-- Production hardening, monitoring, and rollback plan.
-- User acceptance checks for Admin, Staff, Farmer, and Distributor roles.
+- No Purchase Management module.
+- No automated eligibility/insurance verification engine.
+- Staff frontend navigation remains narrower than broad API-level read permissions.
+- Distributor does not currently have a dedicated frontend report page.
 
 ## Copilot Skill: execution-playbook
 
