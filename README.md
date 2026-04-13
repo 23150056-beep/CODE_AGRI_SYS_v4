@@ -251,6 +251,13 @@ Example prompts:
 Contribution workflow, coding standards, and verification expectations are documented in `CONTRIBUTING.md`.
 
 ## Notes
-
 - The repository currently contains a frontend scaffold and architecture documentation.
 - As backend services are added, update this README with API setup, environment variables, and deployment instructions.
+
+##  Need to update!!!
+- add a complaint report module, for farmers and can be review by staff and admin
+- staff can view the inventory (staff cannot manipulate the inventory but he can monitor it
+- farmer can edit his user management, but after he update its still need approval/confirmation to staff/admin
+- change the program to Rice seed pack, Corn seed pack, Vegetable seed assorted pack,fruit bearing trees pack,
+- Limit admin max of 2, then Admin can make another account admin but he lose his admin status
+- In create intervention add filtering for user which you can see option on who to grant an intervention from farmers
